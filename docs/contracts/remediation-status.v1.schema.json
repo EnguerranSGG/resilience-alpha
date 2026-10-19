@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "ExecutionMode": {
+      "enum": [
+        "simulated",
+        "ansible"
+      ],
+      "title": "ExecutionMode",
+      "type": "string"
+    },
+    "RemediationState": {
+      "enum": [
+        "NORMAL",
+        "SUSPECT",
+        "MITIGATING",
+        "RECOVERED",
+        "FAILED"
+      ],
+      "title": "RemediationState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "active_profile": {
+      "title": "Active Profile",
+      "type": "string"
+    },
+    "current_incident_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Current Incident Id"
+    },
+    "execution_mode": {
+      "$ref": "#/$defs/ExecutionMode"
+    },
+    "last_transition_at": {
+      "format": "date-time",
+      "title": "Last Transition At",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/RemediationState"
+    }
+  },
+  "required": [
+    "state",
+    "execution_mode",
+    "active_profile",
+    "last_transition_at"
+  ],
+  "title": "RemediationStatusView",
+  "type": "object"
+}

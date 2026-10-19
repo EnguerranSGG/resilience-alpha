@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "AnomalyType": {
+      "enum": [
+        "DOS_SUSPECTED",
+        "ANOMALY_DETECTED"
+      ],
+      "title": "AnomalyType",
+      "type": "string"
+    },
+    "DetectionWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "consecutive_anomalous_windows": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Consecutive Anomalous Windows",
+          "type": "integer"
+        },
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        },
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "consecutive_anomalous_windows"
+      ],
+      "title": "DetectionWindow",
+      "type": "object"
+    },
+    "MetricsSnapshot": {
+      "additionalProperties": false,
+      "description": "Valeurs des features observées sur la fenêtre analysée.",
+      "properties": {
+        "active_requests": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requêtes en cours de traitement.",
+          "title": "Active Requests"
+        },
+        "cpu_usage": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Secondes CPU consommées par seconde.",
+          "title": "Cpu Usage"
+        },
+        "error_rate": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Part des réponses HTTP 5xx.",
+          "title": "Error Rate"
+        },
+        "latency_p95_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Latence p95 en millisecondes.",
+          "title": "Latency P95 Ms"
+        },
+        "request_rate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Requêtes HTTP par seconde.",
+          "title": "Request Rate"
+        }
+      },
+      "title": "MetricsSnapshot",
+      "type": "object"
+    },
+    "RecommendedAction": {
+      "description": "Vocabulaire fermé des actions qu'un détecteur peut suggérer.\n\nLa présence d'une valeur dans cette énumération ne signifie pas qu'elle est\nautorisée : l'autorisation relève de la politique du moteur de remédiation.",
+      "enum": [
+        "NONE",
+        "ENABLE_RATE_LIMIT",
+        "RESTORE_NORMAL_PROFILE",
+        "RESTART_SERVICE"
+      ],
+      "title": "RecommendedAction",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "anomaly_score": {
+      "maximum": 1,
+      "minimum": -1,
+      "title": "Anomaly Score",
+      "type": "number"
+    },
+    "event_id": {
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "is_anomaly": {
+      "default": true,
+      "title": "Is Anomaly",
+      "type": "boolean"
+    },
+    "metrics": {
+      "$ref": "#/$defs/MetricsSnapshot"
+    },
+    "model": {
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+      "title": "Model",
+      "type": "string"
+    },
+    "model_version": {
+      "default": "unknown",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+      "title": "Model Version",
+      "type": "string"
+    },
+    "recommended_action": {
+      "$ref": "#/$defs/RecommendedAction",
+      "default": "NONE"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$",
+      "title": "Source",
+      "type": "string"
+    },
+    "threshold": {
+      "default": 0.0,
+      "maximum": 1,
+      "minimum": -1,
+      "title": "Threshold",
+      "type": "number"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "trained_on_synthetic": {
+      "description": "Vrai si le modèle a été entraîné sur des données synthétiques.",
+      "title": "Trained On Synthetic",
+      "type": "boolean"
+    },
+    "type": {
+      "$ref": "#/$defs/AnomalyType"
+    },
+    "window": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DetectionWindow"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "type",
+    "timestamp",
+    "source",
+    "model",
+    "trained_on_synthetic",
+    "anomaly_score",
+    "metrics"
+  ],
+  "title": "AnomalyEvent",
+  "type": "object"
+}

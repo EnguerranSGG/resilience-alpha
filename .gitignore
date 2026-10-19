@@ -1,0 +1,57 @@
+# Secrets et configuration locale
+/secrets/*
+!/secrets/README.md
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.age
+age-key.txt
+keys.txt
+security/secrets/*.dec.*
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+
+# Node / frontend
+node_modules/
+apps/frontend/dist/
+*.tsbuildinfo
+
+# Données et artefacts ML (jamais commités : volumétrie, provenance à documenter)
+ai/anomaly-detection/data/*
+!ai/anomaly-detection/data/README.md
+!ai/anomaly-detection/data/.gitkeep
+ai/anomaly-detection/models/*
+!ai/anomaly-detection/models/README.md
+!ai/anomaly-detection/models/.gitkeep
+ai/rag-assistant/index/
+
+security/attack-tests/loadtest.env
+
+# Résultats d'essais (preuves archivées hors dépôt ou ajoutées explicitement)
+security/attack-tests/results/*
+!security/attack-tests/results/README.md
+tests/reports/
+
+# Livrables binaires lourds
+*.mp4
+*.pptx
+deliverables/
+
+# Système / éditeurs
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

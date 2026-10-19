@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "event_id": "incident-001",
+  "type": "DOS_SUSPECTED",
+  "timestamp": "2026-10-19T10:30:00Z",
+  "source": "ml-detector",
+  "model": "isolation_forest",
+  "model_version": "example",
+  "trained_on_synthetic": true,
+  "anomaly_score": -0.12,
+  "threshold": 0.0,
+  "is_anomaly": true,
+  "window": {
+    "start": "2026-10-19T10:29:30Z",
+    "end": "2026-10-19T10:30:00Z",
+    "consecutive_anomalous_windows": 3
+  },
+  "metrics": {
+    "request_rate": 85,
+    "latency_p95_ms": 1400,
+    "error_rate": 0.18,
+    "cpu_usage": 0.92,
+    "active_requests": 14
+  },
+  "recommended_action": "ENABLE_RATE_LIMIT"
+}

@@ -1,0 +1,13 @@
+# Inventaire utilisé PAR LE MOTEUR DE REMÉDIATION, dans son propre conteneur.
+# Connexion locale uniquement : aucune clé SSH, aucun accès au socket Docker.
+all:
+  children:
+    remediation:
+      hosts:
+        remediation-local:
+          ansible_connection: local
+          ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      vars:
+        gateway_requests_dir: /var/lib/gateway-control/requests
+        gateway_status_dir: /var/lib/gateway-control/status
+        gateway_apply_timeout_seconds: 30

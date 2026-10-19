@@ -1,0 +1,49 @@
+# Règles SOC légères évaluées par le ruler Loki (montées dans /etc/loki/rules/fake/).
+# Statut : SCAFFOLDED — seuils à calibrer par P4 après les premiers essais.
+# Ces alertes informent l'opérateur ; elles ne déclenchent PAS la remédiation.
+groups:
+  - name: soc-gateway
+    interval: 15s
+    rules:
+      - alert: GatewayRateLimitBurst
+        expr: |
+          sum by (client_ip) (count_over_time({service="gateway", log_type="access"} | json | status="429" [1m])) > 50
+        for: 15s
+        labels:
+          severity: warning
+          category: availability
+        annotations:
+          summary: "Rafale de 429 pour {{ $labels.client_ip }} (limitation NGINX active)"
+
+      - alert: WafBlockedRequests
+        expr: |
+          sum(count_over_time({service="gateway", log_type="access"} | json | status="403" [5m])) > 5
+        labels:
+          severity: warning
+          category: intrusion
+        annotations:
+          summary: "Plusieurs requêtes bloquées par le WAF en 5 minutes"
+
+  - name: soc-auth
+    interval: 15s
+    rules:
+      - alert: AuthBruteForceSuspected
+        expr: |
+          sum by (client_ip) (count_over_time({service="auth-service"} |= "auth.login_failed" | json [5m])) > 10
+        labels:
+          severity: warning
+          category: credential-access
+        annotations:
+          summary: "Échecs de connexion répétés depuis {{ $labels.client_ip }}"
+
+  - name: soc-remediation
+    interval: 15s
+    rules:
+      - alert: RemediationEventUnauthorized
+        expr: |
+          sum(count_over_time({service="remediation-engine"} |= "events.unauthorized" [5m])) > 0
+        labels:
+          severity: critical
+          category: integrity
+        annotations:
+          summary: "Événement refusé par le moteur (jeton invalide) : composant non autorisé ?"

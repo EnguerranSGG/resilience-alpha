@@ -1,0 +1,2 @@
+# PC Attaquant uniquement (jamais installé dans les images de la plateforme).
+locust==2.46.7

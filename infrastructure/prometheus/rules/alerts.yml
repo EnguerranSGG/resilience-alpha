@@ -1,0 +1,37 @@
+# Alertes de supervision (visibles dans Prometheus et Grafana ; aucun Alertmanager n'est déployé).
+# Elles n'ont AUCUN effet sur la remédiation, pilotée uniquement par le moteur.
+groups:
+  - name: resilience-alerts
+    rules:
+      - alert: PaymentApiDown
+        expr: up{job="payment-api"} == 0
+        for: 15s
+        labels: {severity: critical}
+        annotations:
+          summary: "payment-api ne répond plus au scrape Prometheus"
+
+      - alert: PaymentLatencyHigh
+        expr: resilience:latency_p95_ms:30s > 800
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "Latence p95 > 800 ms sur payment-api"
+
+      - alert: PaymentErrorRateHigh
+        expr: resilience:error_rate:30s > 0.05
+        for: 30s
+        labels: {severity: warning}
+        annotations:
+          summary: "Plus de 5 % de réponses 5xx sur payment-api"
+
+      - alert: RemediationFailed
+        expr: remediation_state{state="FAILED"} == 1
+        labels: {severity: critical}
+        annotations:
+          summary: "Le moteur de remédiation est en échec : escalade opérateur"
+
+      - alert: RemediationSimulated
+        expr: remediation_executor_simulated == 1
+        labels: {severity: info}
+        annotations:
+          summary: "Exécuteur de remédiation en mode SIMULATION"

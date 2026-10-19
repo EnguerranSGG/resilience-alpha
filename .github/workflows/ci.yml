@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Lint et tests Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Installer les dépendances de développement
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Ruff
+        run: |
+          ruff check packages apps/payment-api apps/auth-service remediation ai infrastructure/grafana security/attack-tests tests
+          ruff format --check packages apps/payment-api apps/auth-service remediation ai infrastructure/grafana security/attack-tests tests
+      - name: Pytest (composants)
+        run: |
+          set -e
+          for d in packages/resilience-contracts apps/payment-api apps/auth-service remediation ai/anomaly-detection ai/rag-assistant; do
+            echo "== $d"
+            (cd "$d" && python -m pytest)
+          done
+          echo "== security/attack-tests"
+          python -m pytest security/attack-tests/tests
+      - name: Pytest (acceptation statique T07-T12)
+        run: python -m pytest tests/integration tests/resilience -m "not live"
+      - name: Ansible syntax-check
+        run: |
+          ansible-playbook -i infrastructure/ansible/inventory/remediation.yml --syntax-check infrastructure/ansible/mitigate.yml
+          ansible-playbook -i infrastructure/ansible/inventory/remediation.yml --syntax-check infrastructure/ansible/restore.yml
+          ansible-playbook -i infrastructure/ansible/inventory/host.yml --syntax-check infrastructure/ansible/deploy.yml
+
+  frontend:
+    name: Lint et build frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npx tsc -b --noEmit
+      - run: npm run build
+
+  compose:
+    name: Validation Compose et contrats
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Générer des secrets de CI (non publiés)
+        run: ./scripts/generate-secrets.sh
+      - name: Valider docker compose
+        run: |
+          docker compose --env-file .env.example -f infrastructure/docker/compose.yml config --quiet
+          docker compose --env-file .env.example -f infrastructure/docker/compose.yml --profile rag config --quiet
+      - name: Contrats JSON à jour
+        run: |
+          python -m pip install -e packages/resilience-contracts
+          python -m resilience_contracts.export_schemas /tmp/contracts
+          diff -ru docs/contracts/anomaly-event.v1.schema.json /tmp/contracts/anomaly-event.v1.schema.json
+          diff -ru docs/contracts/remediation-status.v1.schema.json /tmp/contracts/remediation-status.v1.schema.json
+          diff -ru docs/contracts/remediation-incident.v1.schema.json /tmp/contracts/remediation-incident.v1.schema.json
+
+  secrets:
+    name: Absence de secrets évidents
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contrôle des fichiers suivis
+        run: ./scripts/check-secrets.sh

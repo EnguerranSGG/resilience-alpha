@@ -1,0 +1,337 @@
+# RESILIENCE-ALPHA — orchestration du démonstrateur.
+#
+#   cp .env.example .env && ./scripts/generate-secrets.sh
+#   docker compose --env-file .env -f infrastructure/docker/compose.yml up -d --build
+#
+# Seuls deux ports sont publiés :
+#   - gateway  ${GATEWAY_BIND_ADDR}:${GATEWAY_PORT}  (point d'entrée du scénario, PC Attaquant inclus)
+#   - grafana  ${GRAFANA_BIND_ADDR}:${GRAFANA_PORT}  (127.0.0.1 par défaut, écran du PC Hôte)
+# Profil "rag" : assistant RAG + Ollama, démarrés à la demande (--profile rag).
+
+name: resilience-alpha
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: *default-logging
+  restart: unless-stopped
+
+services:
+  # --------------------------------------------------------------- métier
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: payments
+      POSTGRES_USER: payments
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    restart: unless-stopped
+
+  payment-api:
+    <<: *hardening
+    build: ../../apps/payment-api
+    environment:
+      PAYMENT_DB_HOST: postgres
+      PAYMENT_DB_PASSWORD_FILE: /run/secrets/postgres_password
+      PAYMENT_JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      PAYMENT_LOG_FILE: /var/log/resilience/payment-api/app.log
+      PAYMENT_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PAYMENT_PROCESSING_DELAY_MS: ${PAYMENT_PROCESSING_DELAY_MS:-50}
+      PAYMENT_DB_POOL_SIZE: ${PAYMENT_DB_POOL_SIZE:-5}
+      PAYMENT_DB_POOL_TIMEOUT_SECONDS: ${PAYMENT_DB_POOL_TIMEOUT_SECONDS:-2}
+      TRUSTED_PROXY_IP: ${GATEWAY_APPS_IP:-10.231.20.10}
+    secrets: [postgres_password, jwt_public_key]
+    volumes:
+      - payment-logs:/var/log/resilience/payment-api
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [apps, backend, observability]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  auth-service:
+    <<: *hardening
+    build: ../../apps/auth-service
+    environment:
+      AUTH_JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private_key
+      AUTH_USERS_FILE: /run/secrets/auth_users
+      AUTH_LOG_FILE: /var/log/resilience/auth-service/app.log
+      AUTH_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-900}
+      TRUSTED_PROXY_IP: ${GATEWAY_APPS_IP:-10.231.20.10}
+    secrets: [jwt_private_key, auth_users]
+    volumes:
+      - auth-logs:/var/log/resilience/auth-service
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [apps, observability]
+
+  frontend:
+    <<: *hardening
+    build: ../../apps/frontend
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [apps]
+
+  # ------------------------------------------------------------ point d'entrée
+  gateway:
+    <<: *hardening
+    build:
+      context: ..
+      dockerfile: nginx/Dockerfile
+    init: true
+    ports:
+      - "${GATEWAY_BIND_ADDR:-127.0.0.1}:${GATEWAY_PORT:-8080}:8080"
+    volumes:
+      - gateway-logs:/var/log/gateway
+      - gateway-requests:/etc/nginx/control/requests:ro
+      - gateway-status:/etc/nginx/control/status
+    networks:
+      edge: {}
+      apps:
+        ipv4_address: ${GATEWAY_APPS_IP:-10.231.20.10}
+      control: {}
+    depends_on:
+      payment-api:
+        condition: service_started
+      auth-service:
+        condition: service_started
+      frontend:
+        condition: service_started
+
+  # ------------------------------------------------------------ observabilité
+  nginx-exporter:
+    <<: *hardening
+    image: nginx/nginx-prometheus-exporter:1.5.3
+    command: ["--nginx.scrape-uri=http://gateway:8081/stub_status"]
+    read_only: true
+    networks: [apps, observability]
+
+  prometheus:
+    <<: *hardening
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    read_only: true
+    networks: [observability]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  loki:
+    <<: *hardening
+    image: grafana/loki:3.6.18
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ../loki/loki.yml:/etc/loki/loki.yml:ro
+      - ../../security/siem/loki-rules:/etc/loki/rules/fake:ro
+      - loki-data:/loki
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [observability]
+
+  alloy:
+    <<: *hardening
+    image: grafana/alloy:v1.20.1
+    # Utilisateur non privilégié de l'image ; les journaux montés sont lisibles par tous (0644).
+    user: "473:473"
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+      - gateway-logs:/var/log/resilience/gateway:ro
+      - payment-logs:/var/log/resilience/payment-api:ro
+      - auth-logs:/var/log/resilience/auth-service:ro
+      - remediation-logs:/var/log/resilience/remediation:ro
+    read_only: true
+    networks: [observability]
+    depends_on: [loki]
+
+  grafana:
+    <<: *hardening
+    image: grafana/grafana:13.2.4
+    ports:
+      - "${GRAFANA_BIND_ADDR:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/resilience-overview.json
+    secrets: [grafana_admin_password]
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    networks: [admin, observability]
+    depends_on: [prometheus, loki]
+
+  # ------------------------------------------------------- détection / remédiation
+  ml-detector:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: ai/anomaly-detection/Dockerfile
+    environment:
+      DETECTOR_PROMETHEUS_URL: http://prometheus:9090
+      DETECTOR_REMEDIATION_URL: http://remediation:8000
+      DETECTOR_EVENT_TOKEN_FILE: /run/secrets/remediation_event_token
+      DETECTOR_INTERVAL_SECONDS: ${DETECTOR_INTERVAL_SECONDS:-5}
+    secrets: [remediation_event_token]
+    volumes:
+      - ../../ai/anomaly-detection/models:/opt/detector/models:ro
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [observability]
+    depends_on: [prometheus, remediation]
+
+  remediation:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: remediation/Dockerfile
+    environment:
+      REMEDIATION_EXECUTION_MODE: ${REMEDIATION_EXECUTION_MODE:-ansible}
+      REMEDIATION_EVENT_TOKEN_FILE: /run/secrets/remediation_event_token
+      REMEDIATION_PROBE_PASSWORD_FILE: /run/secrets/probe_password
+      REMEDIATION_GATEWAY_URL: http://gateway:8080
+      REMEDIATION_GATEWAY_STATUS_FILE: /var/lib/gateway-control/status/status.json
+      REMEDIATION_LOG_FILE: /var/log/resilience/remediation/app.log
+      REMEDIATION_JOURNAL_FILE: /var/log/resilience/remediation/incidents.jsonl
+      REMEDIATION_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REMEDIATION_RESTORE_AFTER_SECONDS: ${REMEDIATION_RESTORE_AFTER_SECONDS:-120}
+      REMEDIATION_POLICY_ACCEPT_SYNTHETIC_MODEL: ${REMEDIATION_POLICY_ACCEPT_SYNTHETIC_MODEL:-false}
+      REMEDIATION_POLICY_MIN_CONSECUTIVE_WINDOWS: ${REMEDIATION_POLICY_MIN_CONSECUTIVE_WINDOWS:-3}
+      REMEDIATION_POLICY_SCORE_THRESHOLD: ${REMEDIATION_POLICY_SCORE_THRESHOLD:--0.05}
+      REMEDIATION_POLICY_LATENCY_P95_MS_THRESHOLD: ${REMEDIATION_POLICY_LATENCY_P95_MS_THRESHOLD:-800}
+      REMEDIATION_POLICY_ERROR_RATE_THRESHOLD: ${REMEDIATION_POLICY_ERROR_RATE_THRESHOLD:-0.05}
+    secrets: [remediation_event_token, probe_password]
+    volumes:
+      - gateway-requests:/var/lib/gateway-control/requests
+      - gateway-status:/var/lib/gateway-control/status:ro
+      - remediation-logs:/var/log/resilience/remediation
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [control, observability]
+
+  # ------------------------------------------------- assistant RAG (profil "rag")
+  ollama:
+    image: ollama/ollama:0.40.6
+    profiles: [rag]
+    volumes:
+      - ollama-data:/root/.ollama
+    networks: [rag]
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: ${OLLAMA_MEMORY_LIMIT:-6g}
+    logging: *default-logging
+    restart: unless-stopped
+
+  rag-assistant:
+    <<: *hardening
+    profiles: [rag]
+    build: ../../ai/rag-assistant
+    environment:
+      RAG_OLLAMA_URL: http://ollama:11434
+      RAG_CHAT_MODEL: ${RAG_CHAT_MODEL:-llama3.2:3b}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
+    ports:
+      - "127.0.0.1:${RAG_PORT:-8090}:8000"
+    volumes:
+      - ../../docs:/opt/rag/docs:ro
+      - rag-index:/opt/rag/index
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [rag]
+    depends_on: [ollama]
+
+networks:
+  # Seul réseau non interne exposant le point d'entrée.
+  edge: {}
+  # Passerelle ↔ applications (adresse fixe de la passerelle = proxy de confiance).
+  apps:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${APPS_SUBNET:-10.231.20.0/24}
+  # Passerelle ↔ moteur de remédiation (vues publiques, vérification métier).
+  control:
+    internal: true
+  backend:
+    internal: true
+  observability:
+    internal: true
+  # Grafana (publication locale).
+  admin: {}
+  # Ollama doit pouvoir télécharger les modèles ; aucun port publié.
+  rag: {}
+
+volumes:
+  pgdata:
+  prometheus-data:
+  loki-data:
+  alloy-data:
+  grafana-data:
+  payment-logs:
+  auth-logs:
+  remediation-logs:
+  gateway-logs:
+  gateway-requests:
+  gateway-status:
+  ollama-data:
+  rag-index:
+
+secrets:
+  postgres_password:
+    file: ../../secrets/postgres_password
+  jwt_private_key:
+    file: ../../secrets/jwt_private_key.pem
+  jwt_public_key:
+    file: ../../secrets/jwt_public_key.pem
+  auth_users:
+    file: ../../secrets/auth_users
+  probe_password:
+    file: ../../secrets/probe_password
+  remediation_event_token:
+    file: ../../secrets/remediation_event_token
+  grafana_admin_password:
+    file: ../../secrets/grafana_admin_password

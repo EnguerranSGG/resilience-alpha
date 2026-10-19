@@ -1,0 +1,3 @@
+# Vhost générique de l'image OWASP CRS volontairement neutralisé.
+# Les scripts /docker-entrypoint.d/9x de l'image modifient ce fichier : il doit exister.
+# La configuration effective est dans conf.d/gateway.conf.

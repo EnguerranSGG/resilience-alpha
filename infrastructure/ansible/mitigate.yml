@@ -1,0 +1,11 @@
+# Action ENABLE_RATE_LIMIT : active le profil NGINX "mitigation".
+# Appelé uniquement par le moteur de remédiation (AnsibleExecutor) avec -e request_id=...
+# Le profil est fixé ici et ne peut pas être modifié par l'appelant.
+- name: Mitigation DoS — activer le profil de limitation stricte
+  hosts: remediation
+  gather_facts: false
+  vars:
+    gateway_profile: mitigation
+  tasks:
+    - name: Appliquer le profil prévalidé
+      ansible.builtin.include_tasks: tasks/apply_gateway_profile.yml

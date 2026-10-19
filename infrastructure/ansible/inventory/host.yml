@@ -1,0 +1,12 @@
+# Inventaire utilisé PAR UN OPÉRATEUR sur le PC Hôte (WSL2, macOS ou Linux) pour deploy.yml.
+all:
+  children:
+    docker_host:
+      hosts:
+        localhost:
+          ansible_connection: local
+          ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      vars:
+        repo_root: "{{ playbook_dir }}/../.."
+        compose_file: "{{ repo_root }}/infrastructure/docker/compose.yml"
+        env_file: "{{ repo_root }}/.env"

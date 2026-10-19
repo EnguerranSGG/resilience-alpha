@@ -1,0 +1,59 @@
+# Déploiement reproductible du socle sur le PC Hôte (exécuté par un opérateur, jamais par le moteur).
+#   ansible-playbook -i infrastructure/ansible/inventory/host.yml infrastructure/ansible/deploy.yml
+- name: Déployer RESILIENCE-ALPHA avec Docker Compose
+  hosts: docker_host
+  gather_facts: false
+  vars:
+    compose_profiles: []
+    required_secrets:
+      - postgres_password
+      - jwt_private_key.pem
+      - jwt_public_key.pem
+      - auth_users
+      - probe_password
+      - remediation_event_token
+      - grafana_admin_password
+  tasks:
+    - name: Vérifier la présence du fichier .env
+      ansible.builtin.stat:
+        path: "{{ env_file }}"
+      register: env_stat
+
+    - name: Exiger .env
+      ansible.builtin.assert:
+        that: env_stat.stat.exists
+        fail_msg: "Copier .env.example vers .env avant le déploiement"
+
+    - name: Vérifier les secrets locaux
+      ansible.builtin.stat:
+        path: "{{ repo_root }}/secrets/{{ item }}"
+      loop: "{{ required_secrets }}"
+      register: secret_stats
+
+    - name: Exiger les secrets
+      ansible.builtin.assert:
+        that: secret_stats.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: "Secrets manquants : lancer scripts/generate-secrets.sh"
+
+    - name: Valider la configuration Compose
+      ansible.builtin.command:
+        argv: [docker, compose, --env-file, "{{ env_file }}", -f, "{{ compose_file }}", config, --quiet]
+      changed_when: false
+
+    - name: Construire et démarrer les services
+      ansible.builtin.command:
+        argv: "{{ [
+          'docker', 'compose', '--env-file', env_file, '-f', compose_file
+          ] + (compose_profiles | map('regex_replace', '^', '--profile=') | list)
+          + ['up', '-d', '--build', '--wait'] }}"
+      register: compose_up
+      changed_when: true
+
+    - name: Attendre la passerelle
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ lookup('env', 'GATEWAY_PORT') | default('8080', true) }}/api/health/ready"
+        status_code: 200
+      register: ready
+      retries: 20
+      delay: 3
+      until: ready.status == 200

@@ -1,0 +1,8 @@
+# Surcharge de DÉVELOPPEMENT uniquement (jamais pendant la démonstration).
+# Publie Prometheus sur l'adresse de bouclage pour l'export de jeux de données ML :
+#   docker compose --env-file .env -f infrastructure/docker/compose.yml -f infrastructure/docker/compose.dev.yml up -d
+services:
+  prometheus:
+    ports:
+      - "127.0.0.1:${PROMETHEUS_DEV_PORT:-9090}:9090"
+    networks: [observability, admin]

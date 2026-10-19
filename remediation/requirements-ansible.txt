@@ -1,0 +1,2 @@
+# Installé uniquement dans l'image du moteur (mode d'exécution "ansible").
+ansible-core==2.21.5

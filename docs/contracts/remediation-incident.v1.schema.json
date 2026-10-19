@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "ExecutionMode": {
+      "enum": [
+        "simulated",
+        "ansible"
+      ],
+      "title": "ExecutionMode",
+      "type": "string"
+    },
+    "RemediationState": {
+      "enum": [
+        "NORMAL",
+        "SUSPECT",
+        "MITIGATING",
+        "RECOVERED",
+        "FAILED"
+      ],
+      "title": "RemediationState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Action"
+    },
+    "closed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Closed At"
+    },
+    "execution_mode": {
+      "$ref": "#/$defs/ExecutionMode"
+    },
+    "incident_id": {
+      "title": "Incident Id",
+      "type": "string"
+    },
+    "opened_at": {
+      "format": "date-time",
+      "title": "Opened At",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/RemediationState"
+    },
+    "timeline": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Timeline",
+      "type": "array"
+    },
+    "trigger_event_id": {
+      "title": "Trigger Event Id",
+      "type": "string"
+    },
+    "verification_passed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verification Passed"
+    }
+  },
+  "required": [
+    "incident_id",
+    "opened_at",
+    "state",
+    "trigger_event_id",
+    "execution_mode",
+    "timeline"
+  ],
+  "title": "IncidentView",
+  "type": "object"
+}

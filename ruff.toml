@@ -1,0 +1,22 @@
+target-version = "py312"
+line-length = 120
+extend-exclude = ["**/node_modules", ".venv"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # textes en français (apostrophes typographiques)
+    "B008",                         # Depends() dans les signatures FastAPI
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S101", "S104", "S105", "S106", "S108", "S311"]
+"tests/**" = ["S101", "S104", "S105", "S106", "S108", "S311", "S603", "S607"]
+"apps/auth-service/app/api/routes.py" = ["S105"]
+"remediation/src/remediation_engine/engine.py" = ["S101"]
+"remediation/src/remediation_engine/executor.py" = ["S603", "S108"]
+"infrastructure/grafana/build_dashboard.py" = ["E501"]
+"security/attack-tests/**" = ["S311"]
+
+[lint.isort]
+known-first-party = ["app", "resilience_contracts", "remediation_engine", "anomaly_detection", "rag_assistant"]

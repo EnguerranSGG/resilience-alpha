@@ -1,0 +1,15 @@
+# Contexte de build racine (ml-detector, remediation) : n'envoyer que le nécessaire.
+**/.git
+**/.venv
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+secrets
+.env
+.env.*
+ai/anomaly-detection/data
+ai/anomaly-detection/models
+docs
+security/attack-tests/results
+apps/frontend/dist

@@ -1,0 +1,11 @@
+# Environnement de développement unique (tests et lint de tous les composants Python).
+#   python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+-e packages/resilience-contracts
+-r apps/payment-api/requirements-dev.txt
+-r apps/auth-service/requirements-dev.txt
+-r remediation/requirements-dev.txt
+-r remediation/requirements-ansible.txt
+-r ai/anomaly-detection/requirements-dev.txt
+-r ai/rag-assistant/requirements-dev.txt
+ruff==0.17.1
+pyyaml==6.0.3

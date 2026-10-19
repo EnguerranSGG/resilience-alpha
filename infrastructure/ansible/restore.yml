@@ -1,0 +1,9 @@
+# Action RESTORE_NORMAL_PROFILE : revient au profil NGINX "normal" après stabilisation.
+- name: Restauration — revenir au profil normal
+  hosts: remediation
+  gather_facts: false
+  vars:
+    gateway_profile: normal
+  tasks:
+    - name: Appliquer le profil prévalidé
+      ansible.builtin.include_tasks: tasks/apply_gateway_profile.yml

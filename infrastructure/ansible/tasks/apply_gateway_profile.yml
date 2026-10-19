@@ -1,0 +1,38 @@
+# Demande l'application d'un profil NGINX prévalidé à la passerelle puis attend
+# son accusé (`nginx -t` + reload effectués côté passerelle).
+# Variables attendues : gateway_profile (fixé par le playbook), request_id (fourni par le moteur).
+- name: Valider les paramètres
+  ansible.builtin.assert:
+    that:
+      - gateway_profile in ['normal', 'mitigation']
+      - request_id is defined
+      - request_id is match('^[A-Za-z0-9-]{8,64}$')
+    fail_msg: "Paramètres refusés (profil hors liste blanche ou request_id invalide)"
+    quiet: true
+
+- name: Écrire la demande de profil
+  ansible.builtin.copy:
+    dest: "{{ gateway_requests_dir }}/request.json"
+    content: "{{ {'request_id': request_id, 'profile': gateway_profile} | to_json }}\n"
+    mode: "0644"
+
+- name: Attendre l'accusé de la passerelle
+  ansible.builtin.wait_for:
+    path: "{{ gateway_status_dir }}/status.json"
+    search_regex: '"request_id": "{{ request_id }}"'
+    timeout: "{{ gateway_apply_timeout_seconds }}"
+
+- name: Lire l'accusé
+  ansible.builtin.slurp:
+    src: "{{ gateway_status_dir }}/status.json"
+  register: gateway_status_raw
+
+- name: Vérifier que le profil a été testé et rechargé
+  vars:
+    gateway_status: "{{ gateway_status_raw.content | b64decode | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - gateway_status.result == 'applied'
+      - gateway_status.profile == gateway_profile
+    fail_msg: "Passerelle : {{ gateway_status.result }} — {{ gateway_status.message }}"
+    success_msg: "Profil {{ gateway_profile }} actif ({{ gateway_status.message }})"

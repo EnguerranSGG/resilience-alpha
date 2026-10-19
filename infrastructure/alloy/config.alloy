@@ -1,0 +1,39 @@
+// Collecte des journaux fichiers → Loki.
+// Aucun accès au socket Docker : chaque service écrit ses logs JSON dans un volume
+// dédié, monté ici en lecture seule.
+
+local.file_match "resilience" {
+  path_targets = [
+    {"__path__" = "/var/log/resilience/gateway/access.log",       "service" = "gateway",            "log_type" = "access"},
+    {"__path__" = "/var/log/resilience/gateway/modsec_audit.log", "service" = "gateway",            "log_type" = "audit"},
+    {"__path__" = "/var/log/resilience/gateway/control.log",      "service" = "gateway",            "log_type" = "control"},
+    {"__path__" = "/var/log/resilience/payment-api/*.log",        "service" = "payment-api",        "log_type" = "app"},
+    {"__path__" = "/var/log/resilience/auth-service/*.log",       "service" = "auth-service",       "log_type" = "app"},
+    {"__path__" = "/var/log/resilience/remediation/app.log",      "service" = "remediation-engine", "log_type" = "app"},
+    {"__path__" = "/var/log/resilience/remediation/incidents.jsonl", "service" = "remediation-engine", "log_type" = "journal"},
+  ]
+  sync_period = "5s"
+}
+
+loki.source.file "resilience" {
+  targets    = local.file_match.resilience.targets
+  forward_to = [loki.process.resilience.receiver]
+}
+
+loki.process "resilience" {
+  // Niveau de log des services Python (absent des journaux NGINX).
+  stage.json {
+    expressions = {level = "level"}
+  }
+  stage.labels {
+    values = {level = ""}
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+  external_labels = {project = "resilience-alpha"}
+}
