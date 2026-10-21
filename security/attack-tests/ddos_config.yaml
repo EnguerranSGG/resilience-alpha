@@ -1,0 +1,24 @@
+# Configuration du flood HTTP volumétrique (ddos_flood.py)
+# Adapter host à l'IP du hotspot Windows : RESILIENCE-G<n> → 192.168.137.1
+
+target:
+  host: "192.168.137.1"   # IP hotspot PC Hôte — à vérifier avec ipconfig
+  port: 8080              # port de la gateway RESILIENCE-ALPHA
+  path: "/api/payments"
+
+attack:
+  workers: 50             # workers async concurrents
+  requests_per_worker: 100
+  duration_seconds: 60    # durée max (≤ 300 s, cohérent avec les garde-fous Locust)
+  timeout: 5
+
+payload:
+  method: "POST"
+  headers:
+    Content-Type: "application/json"
+    User-Agent: "RESILIENCE-ALPHA-FLOOD/1.0 (lab-only)"
+  body:
+    amount: 1
+    currency: "EUR"
+    payer_id: "FAKE-FLOOD-001"
+    payee_id: "FAKE-FLOOD-002"

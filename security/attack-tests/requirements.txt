@@ -1,2 +1,6 @@
 # PC Attaquant uniquement (jamais installé dans les images de la plateforme).
 locust==2.46.7
+
+# Flood HTTP volumétrique (ddos_flood.py)
+aiohttp==3.9.1
+pyyaml==6.0.1
