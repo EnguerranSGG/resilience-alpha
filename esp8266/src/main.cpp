@@ -1,219 +1,148 @@
 /**
- * RESILIENCE-ALPHA — Firmware ESP8266
- * Consigne Additionnelle 1 : indicateur LED bicolore pour le back-office MFA
+ * RESILIENCE-ALPHA — ESP8266 LED Controller
+ * Consigne Additionnelle 1 : indicateur LED bicolore pour face-auth
  *
- * LED bicolore câblage (LED à cathode commune) :
- *   Anode verte  → D1 (GPIO5)  via résistance 220Ω
- *   Anode rouge  → D2 (GPIO4)  via résistance 220Ω
- *   Cathode      → GND
+ * Pinout (NodeMCU v2) :
+ *   D5 / GPIO14 → LED verte (anode, résistance 220Ω vers GND)
+ *   D6 / GPIO12 → LED rouge (anode, résistance 220Ω vers GND)
  *
- * Endpoint HTTP (port 80) :
- *   POST /led   body JSON : {"state":"<STATE>"}
- *   GET  /health           → 200 OK
- *
- * États :
- *   OFF           → LED éteinte (attente)
- *   GREEN_BLINK   → vert clignotant 500ms (visage reconnu, MDP attendu)
- *   GREEN_SOLID   → vert fixe 30s       (login réussi)
- *   RED_BLINK     → rouge clignotant 10x (MDP refusé)
- *   RED_SOLID     → rouge fixe 30s       (visage non reconnu / bloqué)
+ * États gérés via POST /led {"state":"..."}  :
+ *   OFF          → éteint
+ *   GREEN_BLINK  → vert clignotant (visage reconnu, attente MDP)
+ *   GREEN_SOLID  → vert fixe 30 s puis OFF (MDP correct)
+ *   RED_BLINK    → rouge clignotant (mauvais MDP)
+ *   RED_SOLID    → rouge fixe 30 s puis OFF (visage non reconnu / bloqué)
  */
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
+#include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 
-// ── Configuration réseau ───────────────────────────────────────────────────
-#ifndef SSID_NAME
-  #define SSID_NAME "RESILIENCE-G1"
+// ── Constantes ──────────────────────────────────────────────────────────────
+#ifndef WIFI_SSID
+#define WIFI_SSID "RESILIENCE-G13"
 #endif
-#ifndef SSID_PASS
-  #define SSID_PASS ""
+#ifndef WIFI_PASS
+#define WIFI_PASS "Resilience2026!"
+#endif
+#ifndef LED_GREEN
+#define LED_GREEN 14   // D5
+#endif
+#ifndef LED_RED
+#define LED_RED   12   // D6
+#endif
+#ifndef AUTO_OFF_MS
+#define AUTO_OFF_MS 30000UL   // durée état SOLID avant extinction
 #endif
 
-// ── Broches LED ────────────────────────────────────────────────────────────
-static constexpr uint8_t PIN_GREEN = D1;   // GPIO5
-static constexpr uint8_t PIN_RED   = D2;   // GPIO4
+#define BLINK_INTERVAL 250   // ms entre chaque transition clignotant
 
-// ── Machine à états LED ────────────────────────────────────────────────────
-enum class LedState {
-  OFF,
-  GREEN_BLINK,
-  GREEN_SOLID,
-  RED_BLINK,
-  RED_SOLID
-};
+// ── Variables d'état ────────────────────────────────────────────────────────
+enum LedState { OFF, GREEN_BLINK, GREEN_SOLID, RED_BLINK, RED_SOLID };
 
-static LedState currentState      = LedState::OFF;
-static unsigned long stateEnterMs = 0;
-static unsigned long lastBlinkMs  = 0;
-static bool blinkOn                = false;
-static int blinkCount              = 0;     // utilisé pour RED_BLINK (10x)
+volatile LedState currentState = OFF;
+unsigned long     stateStartMs  = 0;
+unsigned long     lastBlinkMs   = 0;
+bool              blinkPhase    = false;
 
-static constexpr unsigned long GREEN_SOLID_DURATION_MS = 30000UL;
-static constexpr unsigned long RED_SOLID_DURATION_MS   = 30000UL;
-static constexpr unsigned long BLINK_PERIOD_MS         = 500UL;
-static constexpr int           RED_BLINK_COUNT         = 10;
+AsyncWebServer server(80);
 
-// ── Serveur HTTP ───────────────────────────────────────────────────────────
-ESP8266WebServer server(80);
-
-// ── Helpers LED ────────────────────────────────────────────────────────────
-void ledOff() {
-  digitalWrite(PIN_GREEN, LOW);
-  digitalWrite(PIN_RED,   LOW);
+// ── Helpers LED ─────────────────────────────────────────────────────────────
+void ledsOff() {
+    digitalWrite(LED_GREEN, LOW);
+    digitalWrite(LED_RED,   LOW);
 }
 
-void ledGreen() {
-  digitalWrite(PIN_GREEN, HIGH);
-  digitalWrite(PIN_RED,   LOW);
-}
+void applyState(LedState s) {
+    currentState = s;
+    stateStartMs = millis();
+    blinkPhase   = false;
+    ledsOff();
 
-void ledRed() {
-  digitalWrite(PIN_GREEN, LOW);
-  digitalWrite(PIN_RED,   HIGH);
-}
-
-void enterState(LedState s) {
-  currentState  = s;
-  stateEnterMs  = millis();
-  lastBlinkMs   = millis();
-  blinkOn       = false;
-  blinkCount    = 0;
-
-  switch (s) {
-    case LedState::OFF:          ledOff();   break;
-    case LedState::GREEN_SOLID:  ledGreen(); break;
-    case LedState::RED_SOLID:    ledRed();   break;
-    case LedState::GREEN_BLINK:
-    case LedState::RED_BLINK:    ledOff();   break;
-  }
-}
-
-// Appelé dans loop() pour gérer les timings
-void updateLed() {
-  unsigned long now = millis();
-
-  switch (currentState) {
-
-    case LedState::GREEN_SOLID:
-      if (now - stateEnterMs >= GREEN_SOLID_DURATION_MS)
-        enterState(LedState::OFF);
-      break;
-
-    case LedState::RED_SOLID:
-      if (now - stateEnterMs >= RED_SOLID_DURATION_MS)
-        enterState(LedState::OFF);
-      break;
-
-    case LedState::GREEN_BLINK:
-      if (now - lastBlinkMs >= BLINK_PERIOD_MS) {
-        lastBlinkMs = now;
-        blinkOn = !blinkOn;
-        blinkOn ? ledGreen() : ledOff();
-      }
-      break;
-
-    case LedState::RED_BLINK:
-      if (now - lastBlinkMs >= BLINK_PERIOD_MS) {
-        lastBlinkMs = now;
-        blinkOn = !blinkOn;
-        if (blinkOn) {
-          ledRed();
-        } else {
-          ledOff();
-          blinkCount++;
-          if (blinkCount >= RED_BLINK_COUNT)
-            enterState(LedState::OFF);
-        }
-      }
-      break;
-
-    case LedState::OFF:
-    default:
-      break;
-  }
-}
-
-// ── Handlers HTTP ──────────────────────────────────────────────────────────
-void handleHealth() {
-  String ssid = WiFi.SSID();
-  String ip   = WiFi.localIP().toString();
-  String body = "{\"status\":\"ok\",\"ip\":\"" + ip + "\",\"ssid\":\"" + ssid + "\"}";
-  server.send(200, "application/json", body);
-}
-
-void handleLed() {
-  if (!server.hasArg("plain")) {
-    server.send(400, "application/json", "{\"error\":\"no body\"}");
-    return;
-  }
-  StaticJsonDocument<128> doc;
-  DeserializationError err = deserializeJson(doc, server.arg("plain"));
-  if (err) {
-    server.send(400, "application/json", "{\"error\":\"invalid json\"}");
-    return;
-  }
-
-  const char* state = doc["state"] | "";
-  String stateStr(state);
-
-  if      (stateStr == "OFF")          enterState(LedState::OFF);
-  else if (stateStr == "GREEN_BLINK")  enterState(LedState::GREEN_BLINK);
-  else if (stateStr == "GREEN_SOLID")  enterState(LedState::GREEN_SOLID);
-  else if (stateStr == "RED_BLINK")    enterState(LedState::RED_BLINK);
-  else if (stateStr == "RED_SOLID")    enterState(LedState::RED_SOLID);
-  else {
-    server.send(400, "application/json", "{\"error\":\"unknown state\"}");
-    return;
-  }
-
-  server.send(200, "application/json", "{\"status\":\"ok\",\"state\":\"" + stateStr + "\"}");
-  Serial.println("[LED] → " + stateStr);
-}
-
-// ── Setup & Loop ───────────────────────────────────────────────────────────
-void setup() {
-  Serial.begin(115200);
-  Serial.println("\n=== RESILIENCE-ALPHA ESP8266 ===");
-
-  pinMode(PIN_GREEN, OUTPUT);
-  pinMode(PIN_RED,   OUTPUT);
-  ledOff();
-
-  // Connexion WiFi
-  Serial.printf("Connexion à %s ...\n", SSID_NAME);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(SSID_NAME, SSID_PASS);
-
-  int retries = 0;
-  while (WiFi.status() != WL_CONNECTED && retries < 30) {
-    delay(500);
-    Serial.print('.');
-    retries++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\nConnecté ! IP : %s\n", WiFi.localIP().toString().c_str());
-    // Clignotement vert rapide = prêt
-    for (int i = 0; i < 4; i++) {
-      ledGreen(); delay(150);
-      ledOff();   delay(150);
+    if (s == GREEN_SOLID) {
+        digitalWrite(LED_GREEN, HIGH);
+    } else if (s == RED_SOLID) {
+        digitalWrite(LED_RED, HIGH);
     }
-  } else {
-    Serial.println("\nWiFi KO — LED rouge fixe");
-    ledRed();
-  }
-
-  // Routes HTTP
-  server.on("/health", HTTP_GET,  handleHealth);
-  server.on("/led",    HTTP_POST, handleLed);
-  server.begin();
-  Serial.println("Serveur HTTP démarré sur le port 80");
+    // BLINK states are handled in loop()
 }
 
+// ── Setup ────────────────────────────────────────────────────────────────────
+void setup() {
+    Serial.begin(115200);
+    pinMode(LED_GREEN, OUTPUT);
+    pinMode(LED_RED,   OUTPUT);
+    ledsOff();
+
+    // Connexion WiFi
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    Serial.print("Connexion WiFi");
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.printf("\nConnecté — IP : %s\n", WiFi.localIP().toString().c_str());
+
+    // ── POST /led ─────────────────────────────────────────────────────────────
+    server.on("/led", HTTP_POST, [](AsyncWebServerRequest* req) {}, nullptr,
+        [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t, size_t) {
+
+            StaticJsonDocument<128> doc;
+            DeserializationError err = deserializeJson(doc, data, len);
+            if (err) {
+                req->send(400, "application/json", "{\"error\":\"JSON invalide\"}");
+                return;
+            }
+
+            const char* stateStr = doc["state"] | "OFF";
+            LedState    next     = OFF;
+
+            if      (strcmp(stateStr, "GREEN_BLINK") == 0) next = GREEN_BLINK;
+            else if (strcmp(stateStr, "GREEN_SOLID") == 0) next = GREEN_SOLID;
+            else if (strcmp(stateStr, "RED_BLINK")   == 0) next = RED_BLINK;
+            else if (strcmp(stateStr, "RED_SOLID")   == 0) next = RED_SOLID;
+
+            applyState(next);
+            Serial.printf("LED → %s\n", stateStr);
+
+            req->send(200, "application/json", "{\"ok\":true}");
+        }
+    );
+
+    // ── GET /health ───────────────────────────────────────────────────────────
+    server.on("/health", HTTP_GET, [](AsyncWebServerRequest* req) {
+        String body = "{\"status\":\"ok\",\"ip\":\"" + WiFi.localIP().toString() + "\"}";
+        req->send(200, "application/json", body);
+    });
+
+    server.begin();
+    Serial.println("Serveur HTTP démarré sur port 80");
+}
+
+// ── Loop ─────────────────────────────────────────────────────────────────────
 void loop() {
-  server.handleClient();
-  updateLed();
+    unsigned long now = millis();
+
+    // Extinction automatique des états SOLID après AUTO_OFF_MS
+    if ((currentState == GREEN_SOLID || currentState == RED_SOLID) &&
+        (now - stateStartMs >= AUTO_OFF_MS)) {
+        applyState(OFF);
+        Serial.println("LED → OFF (auto)");
+        return;
+    }
+
+    // Gestion clignotement non-bloquant
+    if (currentState == GREEN_BLINK || currentState == RED_BLINK) {
+        if (now - lastBlinkMs >= BLINK_INTERVAL) {
+            lastBlinkMs = now;
+            blinkPhase  = !blinkPhase;
+            ledsOff();
+            if (blinkPhase) {
+                if (currentState == GREEN_BLINK) digitalWrite(LED_GREEN, HIGH);
+                else                             digitalWrite(LED_RED,   HIGH);
+            }
+        }
+    }
 }
