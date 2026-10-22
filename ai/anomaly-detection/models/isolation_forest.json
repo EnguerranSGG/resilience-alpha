@@ -1,0 +1,66 @@
+{
+  "model_version": "if-20261022101618",
+  "trained_at": "2026-10-22T10:16:18.299132+00:00",
+  "trained_on_synthetic": false,
+  "features": [
+    "request_rate",
+    "latency_p95",
+    "error_rate",
+    "cpu_usage",
+    "active_requests"
+  ],
+  "n_training_samples": 856,
+  "contamination": "auto",
+  "threshold": 0.0,
+  "sklearn_version": "1.9.1",
+  "training_quantiles": {
+    "request_rate": {
+      "p50": 0.0,
+      "p99": 4.12032962637011
+    },
+    "latency_p95": {
+      "p50": 0.0,
+      "p99": 487.5
+    },
+    "error_rate": {
+      "p50": 0.0,
+      "p99": 0.0
+    },
+    "cpu_usage": {
+      "p50": 0.0024002880345642,
+      "p99": 0.068405472437795
+    },
+    "active_requests": {
+      "p50": 0.0,
+      "p99": 2.0
+    }
+  },
+  "evaluation": {
+    "validation": {
+      "precision": 0.375,
+      "recall": 1.0,
+      "f1": 0.5454545454545454,
+      "true_negatives": 232,
+      "false_positives": 35,
+      "false_negatives": 0,
+      "true_positives": 21,
+      "false_positive_rate": 0.13108614232209737,
+      "support": 288
+    },
+    "test": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "true_negatives": 259,
+      "false_positives": 29,
+      "false_negatives": 0,
+      "true_positives": 0,
+      "false_positive_rate": 0.10069444444444445,
+      "support": 288
+    }
+  },
+  "data_sources": [
+    "//tmp/normal_real.csv",
+    "//tmp/attack_real.csv"
+  ]
+}

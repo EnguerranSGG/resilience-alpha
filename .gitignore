@@ -34,6 +34,8 @@ ai/anomaly-detection/data/*
 ai/anomaly-detection/models/*
 !ai/anomaly-detection/models/README.md
 !ai/anomaly-detection/models/.gitkeep
+!ai/anomaly-detection/models/isolation_forest.joblib
+!ai/anomaly-detection/models/isolation_forest.json
 ai/rag-assistant/index/
 
 security/attack-tests/loadtest.env
